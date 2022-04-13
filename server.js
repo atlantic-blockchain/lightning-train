@@ -2,6 +2,9 @@ const express = require('express');
 const axios = require('axios');
 const {exit} = require('process');
 
+const Gpio = require('onoff').Gpio; //include onoff to interact with the GPIO
+const TRAIN_SIGNAL = new Gpio(21, 'out'); //use GPIO pin 4, and specify that it is output
+
 // Read environment variables from .env file
 require('dotenv').config();
 
@@ -65,9 +68,31 @@ app.get('/makeInvoice', async (req, res, next) => {
       }
     });
 
+    const {payment_hash} = response.data;
+
+    // Invoice was created successfully
+    checkInvoice(payment_hash);
 
     // If the invoice is received, send back the data (JSON)
     return res.send(response.data);
+  } catch (error) {
+
+    // Otherwise catch the error and return it to the user
+    console.log('ERROR');
+    console.log(error);
+    return res.send({error: error, success: false, code: 1001});
+  }
+});
+
+app.get('/checkInvoice', async (req, res, next) => {
+  // Get an amount of Satoshis from the url query parameter
+  const {invoice} = req.query;
+
+  // Try to get an invoice from the server
+  try {
+    let response = await checkInvoice(invoice);
+
+    return res.send(response);
   } catch (error) {
 
     // Otherwise catch the error and return it to the user
@@ -81,3 +106,44 @@ app.get('/makeInvoice', async (req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Train is listening on port ${PORT}...`);
 });
+
+
+
+const DURATION = 1000;
+let count = 0;
+async function checkInvoice(paymentHash) {
+
+  console.log(`CHECKING INVOICE: ${count++}`);
+
+  try {
+    let response = await axios({
+      url: `${API}/api/v1/payments/${paymentHash}`,
+      method: 'get',
+      headers: {"X-Api-Key": INVOICE_KEY}
+    });
+
+    if (response.data.paid === false) {
+      return setTimeout(() => checkInvoice(paymentHash), DURATION);
+    } else {
+      // WHEN IT IS RUN THE TRAIN
+      startTrain();
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.log('THERE WAS AN ERROR');
+    console.log(error);
+  }
+}
+
+
+
+function startTrain() {
+  console.log('TRAIN IS RUNNING');
+  TRAIN_SIGNAL.writeSync(1);
+  setTimeout(() => {
+    console.log('TRAIN IS STOPPED');
+    TRAIN_SIGNAL.writeSync(0)
+  }, 5000);
+}
